@@ -40,7 +40,7 @@ router.get("/", authenticate, async (req, res) => {
       SELECT TOP 50
         a.AppointID,
         a.PatientID,
-        COALESCE(p.Name + ' ' + p.Surname, 'Unknown Patient') AS PatientName,
+        COALESCE(p.PatientName + ' ' + p.PatientSurname, 'Unknown Patient') AS PatientName,
         a.StartTime,
         a.EndTime,
         a.Status,

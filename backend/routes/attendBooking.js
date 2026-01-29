@@ -3,7 +3,6 @@ import poolPromise, { sql } from "../db.js";
 
 const router = express.Router();
 
-// GET today's bookings (InPatient status for today)
 router.get("/today", async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -11,8 +10,8 @@ router.get("/today", async (req, res) => {
       SELECT 
         a.AppointID,
         a.PatientID,
-        p.Name AS PatientName,
-        p.Surname AS PatientSurname,
+        p.PatientName,
+        p.PatientSurname,
         a.StartTime,
         a.Status,
         a.MedicalAidNumber,
@@ -40,7 +39,6 @@ router.get("/today", async (req, res) => {
   }
 });
 
-// GET visit info for a specific appointment
 router.get("/:appointId/visit", async (req, res) => {
   try {
     const { appointId } = req.params;
@@ -69,7 +67,6 @@ router.get("/:appointId/visit", async (req, res) => {
   }
 });
 
-// POST - Record visit info and optionally create follow-up appointment
 router.post("/", async (req, res) => {
   const { appointID, examination, history, diagnoses, treatment, healthEducation, followUpPlan } = req.body;
 
@@ -79,13 +76,11 @@ router.post("/", async (req, res) => {
     await transaction.begin();
 
     try {
-      // Check if visit already exists for this appointment
       const existingVisit = await transaction.request()
         .input("appointID", sql.Int, appointID)
         .query("SELECT VisitID FROM Visit WHERE AppointID = @appointID");
 
       if (existingVisit.recordset.length > 0) {
-        // Update existing visit
         await transaction.request()
           .input("appointID", sql.Int, appointID)
           .input("Examination", sql.NVarChar(sql.MAX), examination || null)
@@ -108,7 +103,6 @@ router.post("/", async (req, res) => {
             WHERE AppointID = @appointID
           `);
       } else {
-        // Insert new visit record
         await transaction.request()
           .input("appointID", sql.Int, appointID)
           .input("Examination", sql.NVarChar(sql.MAX), examination || null)
@@ -124,7 +118,6 @@ router.post("/", async (req, res) => {
           `);
       }
 
-      // Update appointment status to Completed
       await transaction.request()
         .input("appointID", sql.Int, appointID)
         .query(`
@@ -133,7 +126,6 @@ router.post("/", async (req, res) => {
           WHERE AppointID = @appointID
         `);
 
-      // Create follow-up appointment if follow-up datetime provided
       if (followUpPlan) {
         const oldAppointResult = await transaction.request()
           .input("appointID", sql.Int, appointID)

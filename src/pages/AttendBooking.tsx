@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Calendar,
   User,
@@ -11,11 +11,19 @@ import {
   CalendarCheck,
   Save,
   Clock,
+  CheckCircle2,
+  AlertCircle,
+  Loader2,
+  RefreshCw,
+  ChevronRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { toast } from "sonner";
 
@@ -26,6 +34,7 @@ interface Appointment {
   PatientSurname: string;
   StartTime: string;
   Status: string;
+  ServiceName?: string;
   patientName: string;
   id: number;
   [key: string]: any;
@@ -43,7 +52,9 @@ interface VisitData {
 const AttendBooking = () => {
   const [todayBookings, setTodayBookings] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [selectedBooking, setSelectedBooking] = useState<Appointment | null>(null);
+  const [loadingVisit, setLoadingVisit] = useState(false);
   const [formData, setFormData] = useState({
     examination: "",
     history: "",
@@ -53,7 +64,6 @@ const AttendBooking = () => {
     followUpPlan: "",
   });
 
-  // Fetch today's bookings
   const fetchTodayBookings = async () => {
     setLoading(true);
     try {
@@ -63,7 +73,7 @@ const AttendBooking = () => {
       setTodayBookings(
         data.map((b: any) => ({
           ...b,
-          patientName: `${b.PatientName} ${b.PatientSurname}`,
+          patientName: `${b.PatientName || ""} ${b.PatientSurname || ""}`.trim() || "Unknown Patient",
           id: b.AppointID,
         }))
       );
@@ -78,11 +88,11 @@ const AttendBooking = () => {
     fetchTodayBookings();
   }, []);
 
-  // Fetch visit info when booking selected
   useEffect(() => {
     if (!selectedBooking) return;
 
     const fetchVisit = async () => {
+      setLoadingVisit(true);
       try {
         const res = await fetch(
           `${import.meta.env.VITE_API_URL}/attendBooking/${selectedBooking.id}/visit`
@@ -96,7 +106,7 @@ const AttendBooking = () => {
             diagnoses: visit.Diagnoses || "",
             treatment: visit.Treatment || "",
             healthEducation: visit.Health_Education || "",
-            followUpPlan: visit.FollowUp_Plan || "",
+            followUpPlan: visit.FollowUp_Plan ? new Date(visit.FollowUp_Plan).toISOString().slice(0, 16) : "",
           });
         } else {
           setFormData({
@@ -109,7 +119,16 @@ const AttendBooking = () => {
           });
         }
       } catch {
-        toast.error("Failed to fetch visit data");
+        setFormData({
+          examination: "",
+          history: "",
+          diagnoses: "",
+          treatment: "",
+          healthEducation: "",
+          followUpPlan: "",
+        });
+      } finally {
+        setLoadingVisit(false);
       }
     };
 
@@ -118,14 +137,18 @@ const AttendBooking = () => {
 
   const handleSelectBooking = (booking: Appointment) => setSelectedBooking(booking);
 
-  // Handle form submit
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedBooking) return toast.error("Please select a booking first");
 
-    // Convert follow-up datetime-local to ISO string for backend
+    if (!formData.examination && !formData.history && !formData.diagnoses && !formData.treatment) {
+      return toast.error("Please fill in at least one field before saving");
+    }
+
+    setSubmitting(true);
+
     const followUpPlanISO = formData.followUpPlan
-      ? new Date(formData.followUpPlan + ":00").toISOString()
+      ? new Date(formData.followUpPlan).toISOString()
       : null;
 
     const payload = {
@@ -149,18 +172,20 @@ const AttendBooking = () => {
 
       if (formData.followUpPlan) {
         toast.success(
-          `Visit recorded for ${selectedBooking.patientName}. Follow-up scheduled for ${new Date(
-            followUpPlanISO!
-          ).toLocaleString()}.`
+          <div className="flex flex-col gap-1">
+            <span className="font-semibold">Visit recorded successfully!</span>
+            <span className="text-sm opacity-80">
+              Follow-up scheduled for {new Date(followUpPlanISO!).toLocaleDateString()} at{" "}
+              {new Date(followUpPlanISO!).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+            </span>
+          </div>
         );
       } else {
         toast.success(`Visit recorded for ${selectedBooking.patientName}`);
       }
 
-      // Remove attended booking from list
       setTodayBookings(todayBookings.filter((b) => b.id !== selectedBooking.id));
 
-      // Reset form
       setSelectedBooking(null);
       setFormData({
         examination: "",
@@ -172,189 +197,320 @@ const AttendBooking = () => {
       });
     } catch (err) {
       console.error(err);
-      toast.error("Failed to record visit");
+      toast.error("Failed to record visit. Please try again.");
+    } finally {
+      setSubmitting(false);
     }
+  };
+
+  const getMinFollowUpDate = () => {
+    const now = new Date();
+    now.setMinutes(now.getMinutes() + 30);
+    return now.toISOString().slice(0, 16);
   };
 
   return (
     <DashboardLayout>
-      <div className="space-y-6">
-        <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
-          <h1 className="text-3xl font-display font-bold">Attend Booking</h1>
-          <p className="text-muted-foreground mt-1">Record patient visit information</p>
+      <div className="space-y-6 max-w-7xl mx-auto">
+        <motion.div 
+          initial={{ opacity: 0, y: -10 }} 
+          animate={{ opacity: 1, y: 0 }}
+          className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
+        >
+          <div>
+            <h1 className="text-3xl font-display font-bold bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent">
+              Attend Booking
+            </h1>
+            <p className="text-muted-foreground mt-1">Record patient visit information and schedule follow-ups</p>
+          </div>
+          <Button 
+            variant="outline" 
+            onClick={fetchTodayBookings}
+            disabled={loading}
+            className="gap-2 self-start"
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
         </motion.div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Booking List */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           <motion.div
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: 0.1 }}
-            className="lg:col-span-1"
+            className="lg:col-span-4"
           >
-            <Card className="border-border/50 shadow-soft">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-lg">
-                  <Calendar className="h-5 w-5 text-primary" />
-                  Today's Bookings
+            <Card className="border-border/50 shadow-lg h-full overflow-hidden">
+              <CardHeader className="bg-gradient-to-r from-primary/5 to-primary/10 border-b border-border/50">
+                <CardTitle className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-lg">
+                    <Calendar className="h-5 w-5 text-primary" />
+                    Today's Bookings
+                  </div>
+                  <Badge variant="secondary" className="font-mono">
+                    {todayBookings.length}
+                  </Badge>
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-2">
-                {loading ? (
-                  <p className="text-center text-muted-foreground py-8">Loading...</p>
-                ) : todayBookings.length === 0 ? (
-                  <p className="text-center text-muted-foreground py-8">No bookings to attend</p>
-                ) : (
-                  todayBookings.map((booking) => (
-                    <button
-                      key={booking.id}
-                      onClick={() => handleSelectBooking(booking)}
-                      className={`w-full p-4 rounded-lg text-left transition-all duration-200 ${
-                        selectedBooking?.id === booking.id
-                          ? "bg-primary text-primary-foreground shadow-md"
-                          : "bg-muted/50 hover:bg-muted"
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <div
-                          className={`h-10 w-10 rounded-full flex items-center justify-center ${
-                            selectedBooking?.id === booking.id ? "bg-primary-foreground/20" : "bg-background"
-                          }`}
-                        >
-                          <User className="h-5 w-5" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium truncate">{booking.patientName}</p>
-                          <div className="flex items-center gap-2 text-sm opacity-80">
-                            <Clock className="h-3 w-3" />
-                            <span>
-                              {new Date(booking.StartTime).toLocaleTimeString([], {
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              })}
-                            </span>
-                            <span
-                              className={`px-2 py-0.5 rounded text-xs ${
-                                selectedBooking?.id === booking.id
-                                  ? "bg-primary-foreground/20"
-                                  : booking.Status === "InPatient"
-                                  ? "bg-success/10 text-success"
-                                  : "bg-warning/10 text-warning"
-                              }`}
-                            >
-                              {booking.Status}
-                            </span>
-                          </div>
-                        </div>
+              <CardContent className="p-0">
+                <ScrollArea className="h-[calc(100vh-320px)] min-h-[400px]">
+                  <div className="p-4 space-y-2">
+                    {loading ? (
+                      <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                        <Loader2 className="h-10 w-10 animate-spin mb-4 text-primary" />
+                        <p>Loading bookings...</p>
                       </div>
-                    </button>
-                  ))
-                )}
+                    ) : todayBookings.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                        <CheckCircle2 className="h-16 w-16 mb-4 text-success/50" />
+                        <p className="font-medium">All caught up!</p>
+                        <p className="text-sm">No pending bookings for today</p>
+                      </div>
+                    ) : (
+                      <AnimatePresence mode="popLayout">
+                        {todayBookings.map((booking, index) => (
+                          <motion.button
+                            key={booking.id}
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, x: -100 }}
+                            transition={{ delay: index * 0.05 }}
+                            onClick={() => handleSelectBooking(booking)}
+                            className={`w-full p-4 rounded-xl text-left transition-all duration-300 group ${
+                              selectedBooking?.id === booking.id
+                                ? "bg-primary text-primary-foreground shadow-lg scale-[1.02]"
+                                : "bg-muted/30 hover:bg-muted/60 hover:shadow-md"
+                            }`}
+                          >
+                            <div className="flex items-center gap-3">
+                              <div
+                                className={`h-12 w-12 rounded-full flex items-center justify-center shrink-0 transition-colors ${
+                                  selectedBooking?.id === booking.id 
+                                    ? "bg-primary-foreground/20" 
+                                    : "bg-primary/10 group-hover:bg-primary/20"
+                                }`}
+                              >
+                                <User className={`h-6 w-6 ${selectedBooking?.id === booking.id ? "" : "text-primary"}`} />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="font-semibold truncate text-base">{booking.patientName}</p>
+                                <div className="flex items-center gap-2 mt-1">
+                                  <div className={`flex items-center gap-1 text-sm ${selectedBooking?.id === booking.id ? "opacity-80" : "text-muted-foreground"}`}>
+                                    <Clock className="h-3.5 w-3.5" />
+                                    <span>
+                                      {new Date(booking.StartTime).toLocaleTimeString([], {
+                                        hour: "2-digit",
+                                        minute: "2-digit",
+                                      })}
+                                    </span>
+                                  </div>
+                                  {booking.ServiceName && (
+                                    <>
+                                      <span className="text-muted-foreground/50">|</span>
+                                      <span className={`text-xs truncate ${selectedBooking?.id === booking.id ? "opacity-80" : "text-muted-foreground"}`}>
+                                        {booking.ServiceName}
+                                      </span>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                              <ChevronRight className={`h-5 w-5 shrink-0 transition-transform ${
+                                selectedBooking?.id === booking.id ? "rotate-90" : "opacity-50 group-hover:opacity-100"
+                              }`} />
+                            </div>
+                          </motion.button>
+                        ))}
+                      </AnimatePresence>
+                    )}
+                  </div>
+                </ScrollArea>
               </CardContent>
             </Card>
           </motion.div>
 
-          {/* Visit Form */}
           <motion.div
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: 0.2 }}
-            className="lg:col-span-2"
+            className="lg:col-span-8"
           >
-            <Card className="border-border/50 shadow-soft">
-              <CardHeader>
+            <Card className="border-border/50 shadow-lg h-full">
+              <CardHeader className="bg-gradient-to-r from-primary/5 to-primary/10 border-b border-border/50">
                 <CardTitle className="flex items-center gap-2 text-lg">
                   <Stethoscope className="h-5 w-5 text-primary" />
                   {selectedBooking
-                    ? `Recording Visit for ${selectedBooking.patientName}`
-                    : "Select a Booking"}
+                    ? `Visit Record - ${selectedBooking.patientName}`
+                    : "Select a Patient"}
                 </CardTitle>
               </CardHeader>
-              <CardContent>
-                {!selectedBooking ? (
-                  <div className="text-center py-12">
-                    <Calendar className="h-16 w-16 mx-auto text-muted-foreground mb-4" />
-                    <p className="text-muted-foreground">
-                      Select a booking from the list to record visit information
-                    </p>
-                  </div>
-                ) : (
-                  <form onSubmit={handleSubmit} className="space-y-6">
-                    <FormField
-                      icon={<Stethoscope className="h-4 w-4" />}
-                      label="Examination"
-                      value={formData.examination}
-                      onChange={(value) =>
-                        setFormData((prev) => ({ ...prev, examination: value }))
-                      }
-                      placeholder="Blood pressure, temperature, heart rate..."
-                    />
-
-                    <FormField
-                      icon={<FileText className="h-4 w-4" />}
-                      label="History"
-                      value={formData.history}
-                      onChange={(value) => setFormData((prev) => ({ ...prev, history: value }))}
-                      placeholder="Patient medical history and complaints..."
-                    />
-
-                    <FormField
-                      icon={<Heart className="h-4 w-4" />}
-                      label="Diagnoses"
-                      value={formData.diagnoses}
-                      onChange={(value) =>
-                        setFormData((prev) => ({ ...prev, diagnoses: value }))
-                      }
-                      placeholder="Clinical diagnosis..."
-                    />
-
-                    <FormField
-                      icon={<Pill className="h-4 w-4" />}
-                      label="Treatment"
-                      value={formData.treatment}
-                      onChange={(value) =>
-                        setFormData((prev) => ({ ...prev, treatment: value }))
-                      }
-                      placeholder="Prescribed treatment and medications..."
-                    />
-
-                    <FormField
-                      icon={<GraduationCap className="h-4 w-4" />}
-                      label="Health Education"
-                      value={formData.healthEducation}
-                      onChange={(value) =>
-                        setFormData((prev) => ({ ...prev, healthEducation: value }))
-                      }
-                      placeholder="Patient education and advice..."
-                    />
-
-                    {/* Follow-up Plan datetime picker */}
-                    <div className="space-y-2">
-                      <Label className="flex items-center gap-2 text-foreground">
-                        <span className="text-primary">
-                          <CalendarCheck className="h-4 w-4" />
-                        </span>
-                        Follow-up Plan
-                      </Label>
-                      <input
-                        type="datetime-local"
-                        value={formData.followUpPlan}
-                        onChange={(e) =>
-                          setFormData((prev) => ({ ...prev, followUpPlan: e.target.value }))
-                        }
-                        className="w-full p-2 bg-muted/50 border border-border/50 rounded focus:border-primary"
-                      />
-                    </div>
-
-                    <Button
-                      type="submit"
-                      className="w-full h-12 gradient-teal text-primary-foreground font-semibold shadow-lg hover:shadow-xl transition-all"
+              <CardContent className="p-6">
+                <AnimatePresence mode="wait">
+                  {!selectedBooking ? (
+                    <motion.div
+                      key="empty"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      className="flex flex-col items-center justify-center py-16"
                     >
-                      <Save className="h-5 w-5 mr-2" />
-                      Record Visit Information
-                    </Button>
-                  </form>
-                )}
+                      <div className="relative">
+                        <div className="absolute inset-0 bg-primary/20 rounded-full blur-2xl" />
+                        <Calendar className="h-20 w-20 text-muted-foreground/50 relative" />
+                      </div>
+                      <p className="text-muted-foreground mt-6 text-center max-w-sm">
+                        Select a patient from the list to record their visit information
+                      </p>
+                    </motion.div>
+                  ) : loadingVisit ? (
+                    <motion.div
+                      key="loading"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      className="flex flex-col items-center justify-center py-16"
+                    >
+                      <Loader2 className="h-12 w-12 animate-spin text-primary mb-4" />
+                      <p className="text-muted-foreground">Loading visit data...</p>
+                    </motion.div>
+                  ) : (
+                    <motion.form
+                      key="form"
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      onSubmit={handleSubmit}
+                      className="space-y-5"
+                    >
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                        <FormField
+                          icon={<Stethoscope className="h-4 w-4" />}
+                          label="Examination"
+                          value={formData.examination}
+                          onChange={(value) =>
+                            setFormData((prev) => ({ ...prev, examination: value }))
+                          }
+                          placeholder="BP, temperature, heart rate, weight..."
+                        />
+
+                        <FormField
+                          icon={<FileText className="h-4 w-4" />}
+                          label="History"
+                          value={formData.history}
+                          onChange={(value) => setFormData((prev) => ({ ...prev, history: value }))}
+                          placeholder="Medical history and chief complaints..."
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                        <FormField
+                          icon={<Heart className="h-4 w-4" />}
+                          label="Diagnoses"
+                          value={formData.diagnoses}
+                          onChange={(value) =>
+                            setFormData((prev) => ({ ...prev, diagnoses: value }))
+                          }
+                          placeholder="Clinical diagnosis and findings..."
+                        />
+
+                        <FormField
+                          icon={<Pill className="h-4 w-4" />}
+                          label="Treatment"
+                          value={formData.treatment}
+                          onChange={(value) =>
+                            setFormData((prev) => ({ ...prev, treatment: value }))
+                          }
+                          placeholder="Medications and procedures..."
+                        />
+                      </div>
+
+                      <FormField
+                        icon={<GraduationCap className="h-4 w-4" />}
+                        label="Health Education"
+                        value={formData.healthEducation}
+                        onChange={(value) =>
+                          setFormData((prev) => ({ ...prev, healthEducation: value }))
+                        }
+                        placeholder="Lifestyle advice, diet recommendations, exercise..."
+                      />
+
+                      <Separator className="my-6" />
+
+                      <div className="bg-primary/5 rounded-xl p-5 border border-primary/10">
+                        <Label className="flex items-center gap-2 text-foreground font-semibold mb-3">
+                          <CalendarCheck className="h-5 w-5 text-primary" />
+                          Schedule Follow-up Appointment
+                        </Label>
+                        <p className="text-sm text-muted-foreground mb-3">
+                          If this patient needs a follow-up visit, select the date and time below.
+                          A new appointment will be automatically created.
+                        </p>
+                        <input
+                          type="datetime-local"
+                          value={formData.followUpPlan}
+                          min={getMinFollowUpDate()}
+                          onChange={(e) =>
+                            setFormData((prev) => ({ ...prev, followUpPlan: e.target.value }))
+                          }
+                          className="w-full max-w-xs p-3 bg-background border border-border rounded-lg focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                        />
+                        {formData.followUpPlan && (
+                          <motion.p
+                            initial={{ opacity: 0, y: -5 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="mt-3 text-sm text-success flex items-center gap-2"
+                          >
+                            <CheckCircle2 className="h-4 w-4" />
+                            Follow-up will be scheduled for{" "}
+                            {new Date(formData.followUpPlan).toLocaleDateString()} at{" "}
+                            {new Date(formData.followUpPlan).toLocaleTimeString([], {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </motion.p>
+                        )}
+                      </div>
+
+                      <div className="flex gap-3 pt-4">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => {
+                            setSelectedBooking(null);
+                            setFormData({
+                              examination: "",
+                              history: "",
+                              diagnoses: "",
+                              treatment: "",
+                              healthEducation: "",
+                              followUpPlan: "",
+                            });
+                          }}
+                          className="flex-1 h-12"
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          type="submit"
+                          disabled={submitting}
+                          className="flex-[2] h-12 bg-gradient-to-r from-primary to-primary/80 text-primary-foreground font-semibold shadow-lg hover:shadow-xl transition-all gap-2"
+                        >
+                          {submitting ? (
+                            <>
+                              <Loader2 className="h-5 w-5 animate-spin" />
+                              Saving...
+                            </>
+                          ) : (
+                            <>
+                              <Save className="h-5 w-5" />
+                              Record Visit Information
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    </motion.form>
+                  )}
+                </AnimatePresence>
               </CardContent>
             </Card>
           </motion.div>
@@ -378,7 +534,7 @@ const FormField = ({
   placeholder: string;
 }) => (
   <div className="space-y-2">
-    <Label className="flex items-center gap-2 text-foreground">
+    <Label className="flex items-center gap-2 text-foreground font-medium">
       <span className="text-primary">{icon}</span>
       {label}
     </Label>
@@ -386,7 +542,7 @@ const FormField = ({
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
-      className="min-h-[80px] bg-muted/50 border-border/50 focus:border-primary resize-none"
+      className="min-h-[100px] bg-muted/30 border-border/50 focus:border-primary focus:ring-2 focus:ring-primary/20 resize-none transition-all"
     />
   </div>
 );

@@ -1,0 +1,193 @@
+import express from "express";
+import poolPromise, { sql } from "../db.js";
+
+const router = express.Router();
+
+// GET today's bookings (InPatient status for today)
+router.get("/today", async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().query(`
+      SELECT 
+        a.AppointID,
+        a.PatientID,
+        p.Name AS PatientName,
+        p.Surname AS PatientSurname,
+        a.StartTime,
+        a.Status,
+        a.MedicalAidNumber,
+        a.MedicalAidName,
+        a.ServiceName,
+        a.ServicePrice,
+        a.UserID,
+        a.MedicalAid_MainMember,
+        a.MainMember__IDNo,
+        a.MedicalAid_option,
+        a.PaymentMethod,
+        a.FinalPrice,
+        a.IsStudent,
+        a.isFollow_Up
+      FROM Appointments a
+      LEFT JOIN Patients p ON a.PatientID = p.PatientID
+      WHERE CAST(a.StartTime AS DATE) = CAST(GETDATE() AS DATE)
+        AND UPPER(LTRIM(RTRIM(a.Status))) = 'INPATIENT'
+      ORDER BY a.StartTime ASC
+    `);
+    res.json(result.recordset || []);
+  } catch (error) {
+    console.error("Failed to fetch today's bookings:", error);
+    res.status(500).json({ message: "Failed to fetch today's bookings" });
+  }
+});
+
+// GET visit info for a specific appointment
+router.get("/:appointId/visit", async (req, res) => {
+  try {
+    const { appointId } = req.params;
+    const pool = await poolPromise;
+    const result = await pool.request()
+      .input("appointId", sql.Int, parseInt(appointId))
+      .query(`
+        SELECT 
+          VisitID,
+          AppointID,
+          Examination,
+          History,
+          Diagnoses,
+          Treatment,
+          Health_Education,
+          FollowUp_Plan,
+          endTime
+        FROM Visit
+        WHERE AppointID = @appointId
+      `);
+    
+    res.json(result.recordset[0] || null);
+  } catch (error) {
+    console.error("Failed to fetch visit:", error);
+    res.status(500).json({ message: "Failed to fetch visit info" });
+  }
+});
+
+// POST - Record visit info and optionally create follow-up appointment
+router.post("/", async (req, res) => {
+  const { appointID, examination, history, diagnoses, treatment, healthEducation, followUpPlan } = req.body;
+
+  try {
+    const pool = await poolPromise;
+    const transaction = new sql.Transaction(pool);
+    await transaction.begin();
+
+    try {
+      // Check if visit already exists for this appointment
+      const existingVisit = await transaction.request()
+        .input("appointID", sql.Int, appointID)
+        .query("SELECT VisitID FROM Visit WHERE AppointID = @appointID");
+
+      if (existingVisit.recordset.length > 0) {
+        // Update existing visit
+        await transaction.request()
+          .input("appointID", sql.Int, appointID)
+          .input("Examination", sql.NVarChar(sql.MAX), examination || null)
+          .input("History", sql.NVarChar(sql.MAX), history || null)
+          .input("Diagnoses", sql.NVarChar(sql.MAX), diagnoses || null)
+          .input("Treatment", sql.NVarChar(sql.MAX), treatment || null)
+          .input("HealthEducation", sql.NVarChar(sql.MAX), healthEducation || null)
+          .input("FollowUpPlan", sql.NVarChar(sql.MAX), followUpPlan || null)
+          .input("endTime", sql.DateTime, new Date())
+          .query(`
+            UPDATE Visit
+            SET
+              Examination = @Examination,
+              History = @History,
+              Diagnoses = @Diagnoses,
+              Treatment = @Treatment,
+              Health_Education = @HealthEducation,
+              FollowUp_Plan = @FollowUpPlan,
+              endTime = @endTime
+            WHERE AppointID = @appointID
+          `);
+      } else {
+        // Insert new visit record
+        await transaction.request()
+          .input("appointID", sql.Int, appointID)
+          .input("Examination", sql.NVarChar(sql.MAX), examination || null)
+          .input("History", sql.NVarChar(sql.MAX), history || null)
+          .input("Diagnoses", sql.NVarChar(sql.MAX), diagnoses || null)
+          .input("Treatment", sql.NVarChar(sql.MAX), treatment || null)
+          .input("HealthEducation", sql.NVarChar(sql.MAX), healthEducation || null)
+          .input("FollowUpPlan", sql.NVarChar(sql.MAX), followUpPlan || null)
+          .input("endTime", sql.DateTime, new Date())
+          .query(`
+            INSERT INTO Visit (AppointID, Examination, History, Diagnoses, Treatment, Health_Education, FollowUp_Plan, endTime)
+            VALUES (@appointID, @Examination, @History, @Diagnoses, @Treatment, @HealthEducation, @FollowUpPlan, @endTime)
+          `);
+      }
+
+      // Update appointment status to Completed
+      await transaction.request()
+        .input("appointID", sql.Int, appointID)
+        .query(`
+          UPDATE Appointments
+          SET Status = 'Completed'
+          WHERE AppointID = @appointID
+        `);
+
+      // Create follow-up appointment if follow-up datetime provided
+      if (followUpPlan) {
+        const oldAppointResult = await transaction.request()
+          .input("appointID", sql.Int, appointID)
+          .query("SELECT * FROM Appointments WHERE AppointID = @appointID");
+
+        const oldAppoint = oldAppointResult.recordset[0];
+        if (!oldAppoint) throw new Error("Original appointment not found");
+
+        const followUpDate = new Date(followUpPlan);
+        if (isNaN(followUpDate.getTime())) throw new Error("Invalid follow-up datetime");
+
+        await transaction.request()
+          .input("PatientID", sql.Int, oldAppoint.PatientID)
+          .input("MedicalAidNumber", sql.NVarChar(100), oldAppoint.MedicalAidNumber || null)
+          .input("StartTime", sql.DateTime, followUpDate)
+          .input("EndTime", sql.DateTime, null)
+          .input("UserID", sql.Int, oldAppoint.UserID)
+          .input("MedicalAidName", sql.NVarChar(255), oldAppoint.MedicalAidName || null)
+          .input("Status", sql.NVarChar(50), "Scheduled")
+          .input("ServiceName", sql.NVarChar(255), oldAppoint.ServiceName || null)
+          .input("ServicePrice", sql.Decimal(18, 2), oldAppoint.ServicePrice || null)
+          .input("MedicalAid_MainMember", sql.NVarChar(255), oldAppoint.MedicalAid_MainMember || null)
+          .input("MainMember__IDNo", sql.NVarChar(50), oldAppoint.MainMember__IDNo || null)
+          .input("MedicalAid_option", sql.NVarChar(255), oldAppoint.MedicalAid_option || null)
+          .input("PaymentMethod", sql.NVarChar(100), oldAppoint.PaymentMethod || null)
+          .input("FinalPrice", sql.Decimal(18, 2), oldAppoint.FinalPrice || null)
+          .input("IsStudent", sql.NVarChar(10), oldAppoint.IsStudent || null)
+          .input("isFollow_Up", sql.NVarChar(10), "Yes")
+          .query(`
+            INSERT INTO Appointments (
+              PatientID, MedicalAidNumber, StartTime, EndTime, UserID,
+              MedicalAidName, Status, ServiceName, ServicePrice,
+              MedicalAid_MainMember, MainMember__IDNo, MedicalAid_option,
+              PaymentMethod, FinalPrice, IsStudent, isFollow_Up
+            )
+            VALUES (
+              @PatientID, @MedicalAidNumber, @StartTime, @EndTime, @UserID,
+              @MedicalAidName, @Status, @ServiceName, @ServicePrice,
+              @MedicalAid_MainMember, @MainMember__IDNo, @MedicalAid_option,
+              @PaymentMethod, @FinalPrice, @IsStudent, @isFollow_Up
+            )
+          `);
+      }
+
+      await transaction.commit();
+      res.json({ success: true, message: "Visit recorded successfully" });
+    } catch (innerError) {
+      await transaction.rollback();
+      throw innerError;
+    }
+  } catch (error) {
+    console.error("Failed to record visit:", error);
+    res.status(500).json({ message: "Failed to record visit or create follow-up" });
+  }
+});
+
+export default router;

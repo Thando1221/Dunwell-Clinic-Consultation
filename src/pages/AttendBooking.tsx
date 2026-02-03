@@ -24,6 +24,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { Input } from "@/components/ui/input";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { toast } from "sonner";
 
@@ -445,15 +446,29 @@ const AttendBooking = () => {
                           If this patient needs a follow-up visit, select the date and time below.
                           A new appointment will be automatically created.
                         </p>
-                        <input
-                          type="datetime-local"
-                          value={formData.followUpPlan}
-                          min={getMinFollowUpDate()}
-                          onChange={(e) =>
-                            setFormData((prev) => ({ ...prev, followUpPlan: e.target.value }))
-                          }
-                          className="w-full max-w-xs p-3 bg-background border border-border rounded-lg focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition-all"
-                        />
+                        <div className="flex flex-col sm:flex-row gap-4">
+                          <div className="flex-1">
+                            <Label className="text-xs text-muted-foreground mb-1 block">Pick Date & Time</Label>
+                            <input
+                              type="datetime-local"
+                              value={formData.followUpPlan}
+                              min={getMinFollowUpDate()}
+                              onChange={(e) =>
+                                setFormData((prev) => ({ ...prev, followUpPlan: e.target.value }))
+                              }
+                              className="w-full p-3 bg-background border border-border rounded-lg focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                            />
+                          </div>
+                          <div className="flex-1">
+                            <Label className="text-xs text-muted-foreground mb-1 block">Follow Up Date :</Label>
+                            <Input
+                              readOnly
+                              value={formData.followUpPlan ? new Date(formData.followUpPlan).toLocaleString() : ""}
+                              placeholder="Follow up date will appear here"
+                              className="bg-muted/50"
+                            />
+                          </div>
+                        </div>
                         {formData.followUpPlan && (
                           <motion.p
                             initial={{ opacity: 0, y: -5 }}

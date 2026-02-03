@@ -134,6 +134,7 @@ router.post("/", async (req, res) => {
         const oldAppoint = oldAppointResult.recordset[0];
         if (!oldAppoint) throw new Error("Original appointment not found");
 
+        // Format date to: YYYY-MM-DD HH:mm:ss.SSS
         const followUpDate = new Date(followUpPlan);
         if (isNaN(followUpDate.getTime())) throw new Error("Invalid follow-up datetime");
 
@@ -153,7 +154,7 @@ router.post("/", async (req, res) => {
           .input("PaymentMethod", sql.NVarChar(100), oldAppoint.PaymentMethod || null)
           .input("FinalPrice", sql.Decimal(18, 2), oldAppoint.FinalPrice || null)
           .input("IsStudent", sql.NVarChar(10), oldAppoint.IsStudent || null)
-          .input("isFollow_Up", sql.NVarChar(10), "Yes")
+          .input("isFollow_Up", sql.NVarChar(10), "True")
           .query(`
             INSERT INTO Appointments (
               PatientID, MedicalAidNumber, StartTime, EndTime, UserID,

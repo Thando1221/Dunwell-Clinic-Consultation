@@ -122,7 +122,7 @@ router.post("/", async (req, res) => {
         .input("appointID", sql.Int, appointID)
         .query(`
           UPDATE Appointments
-          SET Status = 'Completed'
+          SET Status = 'OutPatient'
           WHERE AppointID = @appointID
         `);
 
@@ -144,7 +144,7 @@ router.post("/", async (req, res) => {
           .input("EndTime", sql.DateTime, null)
           .input("UserID", sql.Int, oldAppoint.UserID)
           .input("MedicalAidName", sql.NVarChar(50), (oldAppoint.MedicalAidName || "").substring(0, 50) || null)
-          .input("Status", sql.NVarChar(50), "Scheduled")
+          .input("Status", sql.NVarChar(50), "InPatient")
           .input("ServiceName", sql.NVarChar(50), (oldAppoint.ServiceName || "").substring(0, 50) || null)
           .input("ServicePrice", sql.Decimal(10, 2), oldAppoint.ServicePrice || null)
           .input("MedicalAid_MainMember", sql.NVarChar(50), (oldAppoint.MedicalAid_MainMember || "").substring(0, 50) || null)

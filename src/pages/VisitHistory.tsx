@@ -88,7 +88,7 @@ const VisitHistory = () => {
   // Fetch visits for selected patient
   const fetchVisits = async (patientId: string) => {
     try {
-      const token = localStorage.getItem("token");
+      const token = localStorage.getItem("dunwell_token");
       if (!token) throw new Error("No token found. Please login.");
 
       const res = await fetch(`${import.meta.env.VITE_API_URL}/visitHistory/${patientId}`, {

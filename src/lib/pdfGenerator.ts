@@ -1,8 +1,10 @@
 import jsPDF from 'jspdf';
 import clinicLogoIco from '@/assets/clinic-logo-pdf.ico';
 
-const CLINIC_NAME = 'DUNWELL EXECUTIVE WELLNESS & HEALTHCARE';
-const CLINIC_TAGLINE = 'Compassionate Care for a Healthier Tomorrow';
+
+
+const CLINIC_NAME = 'DUNWELL Youth Priority Clinic';
+const CLINIC_TAGLINE = 'PR : 988030';
 const CLINIC_ADDRESS = '38 De Beer Street, Braamfontein, Johannesburg, 2001';
 const CLINIC_TEL = 'Tel: 072 176 0247';
 const CLINIC_EMAIL = 'Email: admin@dunwellyouthpriority.co.za';
@@ -68,19 +70,31 @@ const loadLogo = async (): Promise<string> => {
   }
 };
 
+// Format date to YYYY-MM-DD (ISO)
+const formatDOB = (dob?: string): string => {
+  if (!dob) return 'N/A';
+
+  const date = new Date(dob);
+  if (isNaN(date.getTime())) return dob; // fallback if already formatted
+
+  return date.toISOString().split('T')[0]; // YYYY-MM-DD
+};
+
+
 // Pre-load logo on module init
 loadLogo();
 
 interface PatientInfo {
   name: string;
   surname: string;
-  dob: string;
+  dob: string; // can be ISO, Date string, etc.
   email?: string;
   idNumber?: string;
   address?: string;
   contactNumber?: string;
   gender?: string;
 }
+
 
 interface NurseInfo {
   name: string;
@@ -425,7 +439,7 @@ export const generateSickNotePDF = async (
   // Patient Information
   y = addSectionHeader(doc, 'PATIENT INFORMATION', y, margin);
   y = addInfoRow(doc, 'Full Name:', `${patient.name} ${patient.surname}`, y, margin);
-  y = addInfoRow(doc, 'Date of Birth:', patient.dob, y, margin);
+  y = addInfoRow(doc, 'Date of Birth:', formatDOB(patient.dob), y, margin);
   y = addInfoRow(doc, 'Accompanied By:', formData.accompaniedBy, y, margin);
   y += 6;
 
@@ -535,7 +549,7 @@ export const generatePrescriptionPDF = async (
   doc.text('DOB:', pageWidth / 2 + 10, y);
   doc.setFont('helvetica', 'normal');
   setColor(doc, colors.text);
-  doc.text(patient.dob, pageWidth / 2 + 25, y);
+  doc.text(formatDOB(patient.dob), pageWidth / 2 + 25, y);
   y += 8;
 
   // Prescription box - calculate available space
@@ -651,7 +665,7 @@ export const generateReferralLetterPDF = async (
   doc.text('DOB:', pageWidth / 2 + 10, y);
   doc.setFont('helvetica', 'normal');
   setColor(doc, colors.text);
-  doc.text(patient.dob, pageWidth / 2 + 25, y);
+  doc.text(formatDOB(patient.dob), pageWidth / 2 + 25, y);
   y += 8;
 
   // Clinical Notes - calculate available space
@@ -884,7 +898,7 @@ export const generateMedicalFitnessPDF = async (
   // Personal Details Section
   y = addSectionTitle('PATIENT PERSONAL DETAILS', y);
   y = addTwoColumnRow('ID Number', formData.idNumber, 'Gender', formData.gender, y, false);
-  y = addTwoColumnRow('Full Name', `${patient.name} ${patient.surname}`, 'DOB', patient.dob, y, true);
+  y = addTwoColumnRow('Full Name', `${patient.name} ${patient.surname}`, 'DOB', formatDOB(patient.dob), y, true);
   y = addTwoColumnRow('Contact', formData.contactNumber, 'Nationality', formData.nationality, y, false);
   y = addStyledRow('Address', formData.address, y, true);
   y = addStyledRow('Email', patient.email || '', y, false);

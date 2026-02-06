@@ -8,12 +8,12 @@ import React, {
 
 export interface User {
   id: number;
-  username: string;
-  fullName: string;
-  role: "N" | "D" | "R"; // Nurse, Doctor, Reception
+  name: string;
+  surname: string;
+  role: "N" | "D" | "R";
   email?: string;
   contactNo?: string;
-  sancHpcsa?: string;
+  sanc_hpcsa?: string; // ✅ MATCH BACKEND
 }
 
 interface AuthContextType {
@@ -21,7 +21,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   login: (username: string, password: string) => Promise<boolean>;
   logout: () => void;
-  setUser: (user: User | null) => void; // for manual updates after login
+  setUser: (user: User | null) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -29,7 +29,6 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
 
-  // Load user from localStorage on app start
   useEffect(() => {
     const storedUser = localStorage.getItem("dunwell_user");
     if (storedUser) {
@@ -51,11 +50,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const data = await res.json();
 
       if (res.ok && data.token && data.user.role === "N") {
-        // Save token and user in localStorage
         localStorage.setItem("dunwell_token", data.token);
         localStorage.setItem("dunwell_user", JSON.stringify(data.user));
-
-        // Update context state
         setUser(data.user);
         return true;
       }
@@ -88,7 +84,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   );
 };
 
-// Custom hook to access auth context
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) {
